@@ -655,10 +655,11 @@ static void __init ima_pcrread(u32 idx, struct tpm_digest *d)
 }
 
 /*
- * Calculate the boot aggregate hash
+ * Calculate an aggregate hash
  */
-static int __init ima_calc_boot_aggregate_tfm(char *digest,
-					      struct crypto_shash *tfm)
+static int __init ima_calc_aggregate_tfm(char *digest,
+					      struct crypto_shash *tfm,
+						  u32 pcr_begin, u32 pcr_end)
 {
 	struct tpm_digest d = { .alg_id = TPM_ALG_SHA1, .digest = {0} };
 	int rc;
@@ -672,7 +673,7 @@ static int __init ima_calc_boot_aggregate_tfm(char *digest,
 		return rc;
 
 	/* cumulative sha1 over tpm registers 0-7 */
-	for (i = TPM_PCR0; i < TPM_PCR8; i++) {
+	for (i = pcr_begin; i < pcr_end; i++) {
 		ima_pcrread(i, &d);
 		/* now accumulate with current aggregate */
 		rc = crypto_shash_update(shash, d.digest, TPM_DIGEST_SIZE);
@@ -692,7 +693,24 @@ int __init ima_calc_boot_aggregate(struct ima_digest_data *hash)
 		return PTR_ERR(tfm);
 
 	hash->length = crypto_shash_digestsize(tfm);
-	rc = ima_calc_boot_aggregate_tfm(hash->digest, tfm);
+	rc = ima_calc_aggregate_tfm(hash->digest, tfm, TPM_PCR0, TPM_PCR8);
+
+	ima_free_tfm(tfm);
+
+	return rc;
+}
+
+int __init ima_calc_kernel_aggregate(struct ima_digest_data *hash)
+{
+	struct crypto_shash *tfm;
+	int rc;
+
+	tfm = ima_alloc_tfm(hash->algo);
+	if (IS_ERR(tfm))
+		return PTR_ERR(tfm);
+
+	hash->length = crypto_shash_digestsize(tfm);
+	rc = ima_calc_aggregate_tfm(hash->digest, tfm, TPM_PCR8, TPM_PCR10);
 
 	ima_free_tfm(tfm);
 

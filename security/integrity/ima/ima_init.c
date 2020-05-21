@@ -87,6 +87,69 @@ err_out:
 	return result;
 }
 
+/* name for kernel aggregate entry */
+static const char kernel_aggregate_name[] = "kernel_aggregate";
+
+/* Add the kernel aggregate to the IMA measurement list and extend
+ * the PCR register.
+ *
+ * Calculate the kernel aggregate, a SHA1 over tpm registers 8-9,
+ * assuming a TPM chip exists, and zeroes if the TPM chip does not
+ * exist.  Add the kernel aggregate measurement to the measurement
+ * list and extend the PCR register.
+ *
+ * See ima_add_boot_aggregate for the case in which a tpm chip does not exists.
+ */
+static int __init ima_add_kernel_aggregate(void)
+{
+	static const char op[] = "add_kernel_aggregate";
+	const char *audit_cause = "ENOMEM";
+	struct ima_template_entry *entry;
+	struct integrity_iint_cache tmp_iint, *iint = &tmp_iint;
+	struct ima_event_data event_data = { .iint = iint,
+					     .filename = kernel_aggregate_name };
+	int result = -ENOMEM;
+	int violation = 0;
+	struct {
+		struct ima_digest_data hdr;
+		char digest[TPM_DIGEST_SIZE];
+	} hash;
+
+	memset(iint, 0, sizeof(*iint));
+	memset(&hash, 0, sizeof(hash));
+	iint->ima_hash = &hash.hdr;
+	iint->ima_hash->algo = HASH_ALGO_SHA1;
+	iint->ima_hash->length = SHA1_DIGEST_SIZE;
+
+	if (ima_tpm_chip) {
+		result = ima_calc_kernel_aggregate(&hash.hdr);
+		if (result < 0) {
+			audit_cause = "hashing_error";
+			goto err_out;
+		}
+	}
+
+	result = ima_alloc_init_template(&event_data, &entry, NULL);
+	if (result < 0) {
+		audit_cause = "alloc_entry";
+		goto err_out;
+	}
+
+	result = ima_store_template(entry, violation, NULL,
+				    kernel_aggregate_name,
+				    CONFIG_IMA_MEASURE_PCR_IDX);
+	if (result < 0) {
+		ima_free_template_entry(entry);
+		audit_cause = "store_entry";
+		goto err_out;
+	}
+	return 0;
+err_out:
+	integrity_audit_msg(AUDIT_INTEGRITY_PCR, NULL, kernel_aggregate_name, op,
+			    audit_cause, result, 0);
+	return result;
+}
+
 #ifdef CONFIG_IMA_LOAD_X509
 void __init ima_load_x509(void)
 {
@@ -124,6 +187,10 @@ int __init ima_init(void)
 	if (rc != 0)
 		return rc;
 	rc = ima_add_boot_aggregate();	/* boot aggregate must be first entry */
+	if (rc != 0)
+		return rc;
+
+	rc = ima_add_kernel_aggregate();
 	if (rc != 0)
 		return rc;
 
