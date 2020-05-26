@@ -677,6 +677,13 @@ static int __init ima_calc_boot_aggregate_tfm(char *digest,
 		/* now accumulate with current aggregate */
 		rc = crypto_shash_update(shash, d.digest, TPM_DIGEST_SIZE);
 	}
+	/* cumulative sha1 over tpm registers 8-9 */
+	for (i = TPM_PCR8; i < TPM_PCR10; i++) {
+		ima_pcrread(i, &d);
+		/* now accumulate with current aggregate */
+		if(d.digest)
+			rc = crypto_shash_update(shash, d.digest, TPM_DIGEST_SIZE);
+	}
 	if (!rc)
 		crypto_shash_final(shash, digest);
 	return rc;
