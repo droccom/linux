@@ -681,7 +681,7 @@ static int __init ima_calc_boot_aggregate_tfm(char *digest,
 	for (i = TPM_PCR8; i < TPM_PCR10; i++) {
 		ima_pcrread(i, &d);
 		/* now accumulate with current aggregate */
-		if(!memcmp(d.digest, d0.digest, crypto_shash_digestsize(tfm)))
+		if(memcmp(d.digest, d0.digest, crypto_shash_digestsize(tfm) != 0))
 			rc = crypto_shash_update(shash, d.digest, TPM_DIGEST_SIZE);
 	}
 	if (!rc)
